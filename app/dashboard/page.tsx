@@ -1,3 +1,7 @@
+
+
+
+
 "use client"
 
 import { useEffect, useState } from "react"
@@ -9,14 +13,19 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { getAnnouncements, getUserGroups, markAnnouncementAsViewed } from "@/lib/firebase-utils"
 import { useAuth } from "@/contexts/auth-context"
-import type { Announcement, Group } from "@/types"
+import type { Announcement, Group, User } from "@/types"
 import { Users, MessageSquare, BookOpen, Calendar, Search, Download, Clock, ImageIcon, File, Video } from "lucide-react"
+import { Timestamp } from "firebase/firestore"
+import { doc, getDoc } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
 export default function DashboardPage() {
   const { user } = useAuth()
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [filteredAnnouncements, setFilteredAnnouncements] = useState<Announcement[]>([])
   const [userGroups, setUserGroups] = useState<Group[]>([])
+  const [allGroups, setAllGroups] = useState<Map<string, Group>>(new Map()) // Store all groups by ID
+  const [userNames, setUserNames] = useState<Map<string, string>>(new Map()) // Store user names by ID
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
 
@@ -32,33 +41,59 @@ export default function DashboardPage() {
       setFilteredAnnouncements(announcements)
     } else {
       const filtered = announcements.filter((announcement) => {
-        const groupName = userGroups.find((g) => g.id === announcement.groupId)?.name || ""
+        const groupName = allGroups.get(announcement.groupId)?.name || ""
+        const posterName = userNames.get(announcement.createdBy) || ""
         return (
           announcement.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
           announcement.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          groupName.toLowerCase().includes(searchQuery.toLowerCase())
+          groupName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          posterName.toLowerCase().includes(searchQuery.toLowerCase())
         )
       })
       setFilteredAnnouncements(filtered)
     }
-  }, [searchQuery, announcements, userGroups])
+  }, [searchQuery, announcements, allGroups, userNames])
 
   const fetchData = async () => {
     if (!user) return
 
     try {
-      // Get user's groups first
+      // Get user's groups
       const groups = await getUserGroups(user.assignedGroups || [])
       setUserGroups(groups)
+      
+      // Create a map of all groups for quick lookup
+      const groupsMap = new Map<string, Group>()
+      groups.forEach(group => {
+        groupsMap.set(group.id, group)
+      })
+      setAllGroups(groupsMap)
 
       // Get announcements for user's groups
       const groupIds = user.assignedGroups || []
       const announcementsData = await getAnnouncements(groupIds)
       setAnnouncements(announcementsData)
 
+      // Fetch names for all users who created announcements
+      const creatorIds = [...new Set(announcementsData.map(a => a.createdBy))]
+      const namesMap = new Map<string, string>()
+      
+      for (const creatorId of creatorIds) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", creatorId))
+          if (userDoc.exists()) {
+            const userData = userDoc.data() as User
+            namesMap.set(creatorId, userData.name)
+          }
+        } catch (error) {
+          console.error(`Error fetching user ${creatorId}:`, error)
+        }
+      }
+      
+      setUserNames(namesMap)
+
       // Mark announcements as viewed by this user (for students)
       if (user.role === "student" && announcementsData.length > 0) {
-        // Mark the latest announcements as viewed (limit to prevent too many calls)
         const recentAnnouncements = announcementsData.slice(0, 10)
         for (const announcement of recentAnnouncements) {
           if (!announcement.viewedBy?.includes(user.id)) {
@@ -73,14 +108,31 @@ export default function DashboardPage() {
     }
   }
 
+  // Helper function to convert Firestore Timestamp to Date
+  const toDate = (dateValue: Date | Timestamp | string | any): Date => {
+    if (!dateValue) return new Date()
+    
+    if (dateValue instanceof Date) return dateValue
+    
+    if (dateValue instanceof Timestamp) return dateValue.toDate()
+    
+    if (dateValue && typeof dateValue === 'object' && 'toDate' in dateValue) {
+      return (dateValue as any).toDate()
+    }
+    
+    if (typeof dateValue === 'string') return new Date(dateValue)
+    
+    return new Date()
+  }
+
   const getFileIcon = (fileType: string) => {
     if (fileType.startsWith("image/")) return <ImageIcon className="h-4 w-4" />
     if (fileType.startsWith("video/")) return <Video className="h-4 w-4" />
     return <File className="h-4 w-4" />
   }
 
-  const formatTime = (date: Date | string) => {
-    const d = date instanceof Date ? date : new Date(date)
+  const formatTime = (dateValue: Date | Timestamp | string | any) => {
+    const d = toDate(dateValue)
     const now = new Date()
     const diffInHours = (now.getTime() - d.getTime()) / (1000 * 60 * 60)
 
@@ -91,7 +143,6 @@ export default function DashboardPage() {
         hour12: false,
       })
     } else if (diffInHours < 168) {
-      // Less than a week
       return d.toLocaleDateString("en-US", { weekday: "short" })
     } else {
       return d.toLocaleDateString("en-US", {
@@ -101,8 +152,8 @@ export default function DashboardPage() {
     }
   }
 
-  const formatFullDateTime = (date: Date | string) => {
-    const d = date instanceof Date ? date : new Date(date)
+  const formatFullDateTime = (dateValue: Date | Timestamp | string | any) => {
+    const d = toDate(dateValue)
     return d.toLocaleString("en-US", {
       weekday: "long",
       year: "numeric",
@@ -112,6 +163,24 @@ export default function DashboardPage() {
       minute: "2-digit",
       hour12: true,
     })
+  }
+
+  const handleDownload = async (file: { name: string; url: string; type: string }) => {
+    try {
+      window.open(file.url, '_blank')
+    } catch (error) {
+      console.error('Error downloading file:', error)
+    }
+  }
+
+  // Get group name helper
+  const getGroupName = (groupId: string) => {
+    return allGroups.get(groupId)?.name || `Group ${groupId.substring(0, 6)}`
+  }
+
+  // Get user name helper
+  const getUserName = (userId: string) => {
+    return userNames.get(userId) || 'Unknown User'
   }
 
   if (loading) {
@@ -167,7 +236,7 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {announcements.reduce((total, announcement) => total + announcement.files.length, 0)}
+                  {announcements.reduce((total, announcement) => total + (announcement.files?.length || 0), 0)}
                 </div>
                 <p className="text-xs text-muted-foreground">Available files</p>
               </CardContent>
@@ -191,7 +260,7 @@ export default function DashboardPage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-bold">Recent Announcements</h2>
-              <div className="relative">
+                            <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                 <Input
                   placeholder="Search announcements..."
@@ -235,21 +304,17 @@ export default function DashboardPage() {
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
                             <Badge variant="secondary">
-                              {userGroups.find((g) => g.id === announcement.groupId)?.name || "Unknown Group"}
+                              {getGroupName(announcement.groupId)}
                             </Badge>
                             <span className="text-sm text-muted-foreground">•</span>
                             <span
                               className="text-sm text-muted-foreground"
                               title={formatFullDateTime(announcement.createdAt)}
                             >
-                              {formatFullDateTime(announcement.createdAt)}
+                              {formatTime(announcement.createdAt)}
                             </span>
                           </div>
                           <CardTitle className="text-lg">{announcement.title}</CardTitle>
-                        </div>
-                        <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                          <Clock className="h-4 w-4" />
-                          <span>{formatTime(announcement.createdAt)}</span>
                         </div>
                       </div>
                     </CardHeader>
@@ -257,25 +322,49 @@ export default function DashboardPage() {
                       <p className="text-sm leading-relaxed whitespace-pre-wrap">{announcement.content}</p>
 
                       {/* File Attachments */}
-                      {announcement.files.length > 0 && (
+                      {announcement.files && announcement.files.length > 0 && (
                         <div className="space-y-3">
                           <h4 className="text-sm font-medium text-muted-foreground">Attachments</h4>
                           <div className="grid gap-2">
-                            {announcement.files.map((file) => (
+                            {announcement.files.map((file, index) => (
                               <div
-                                key={file.id}
-                                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border"
+                                key={file.id || index}
+                                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border hover:bg-gray-100 transition-colors"
                               >
-                                <div className="flex items-center gap-2">
-                                  {getFileIcon(file.type)}
-                                  <span>{file.name}</span>
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                  <div className="flex-shrink-0">
+                                    {getFileIcon(file.type)}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-medium truncate">{file.name}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {file.size ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : 'Size unknown'}
+                                    </p>
+                                  </div>
                                 </div>
-                                <Button variant="ghost">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => handleDownload(file)}
+                                  className="flex-shrink-0 ml-2"
+                                  title={`Download ${file.name}`}
+                                >
                                   <Download className="h-4 w-4" />
+                                  <span className="sr-only">Download</span>
                                 </Button>
                               </div>
                             ))}
                           </div>
+                        </div>
+                      )}
+
+                      {/* Metadata */}
+                      {user?.role !== 'student' && (
+                        <div className="pt-3 border-t">
+                          <p className="text-xs text-muted-foreground">
+                            Posted by {getUserName(announcement.createdBy)} • 
+                            {announcement.viewedBy ? ` Viewed by ${announcement.viewedBy.length} students` : ' No views yet'}
+                          </p>
                         </div>
                       )}
                     </CardContent>
