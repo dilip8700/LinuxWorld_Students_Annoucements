@@ -3,6 +3,7 @@
 import type React from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { MaintenanceBanner } from "../maintenance-banner"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -132,7 +133,8 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   const navigationItems = getNavigationItems()
 
-  return (
+  return (<>
+    <MaintenanceBanner />
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader>
@@ -221,5 +223,6 @@ export function MainLayout({ children }: MainLayoutProps) {
         <main className="flex-1 p-4 overflow-auto">{children}</main>
       </SidebarInset>
     </SidebarProvider>
+    </>
   )
 }

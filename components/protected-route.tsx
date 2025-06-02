@@ -4,7 +4,8 @@ import type React from "react"
 import { useAuth } from "@/contexts/auth-context"
 import type { UserRole } from "@/types"
 import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
+import { getPlatformSettings } from "@/lib/firebase-utils"
 
 interface ProtectedRouteProps {
   children: React.ReactNode
@@ -15,16 +16,47 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children, allowedRoles, requireApproval = true }: ProtectedRouteProps) {
   const { user, authLoading, isInitialized } = useAuth()
   const router = useRouter()
+  const [maintenanceMode, setMaintenanceMode] = useState(false)
+  const [maintenanceLoading, setMaintenanceLoading] = useState(true)
+
+  // Admin roles that can bypass maintenance mode
+  const adminRoles: UserRole[] = ['super_admin', 'admin', 'group_admin']
+
+  // Check maintenance mode status
+  useEffect(() => {
+    const checkMaintenanceMode = async () => {
+      try {
+        const settings = await getPlatformSettings()
+        setMaintenanceMode(settings.maintenanceMode || false)
+      } catch (error) {
+        console.error("Error checking maintenance mode:", error)
+        setMaintenanceMode(false)
+      } finally {
+        setMaintenanceLoading(false)
+      }
+    }
+
+    if (isInitialized) {
+      checkMaintenanceMode()
+    }
+  }, [isInitialized])
 
   useEffect(() => {
     // Only proceed with checks if auth is fully initialized and not loading
-    if (isInitialized && !authLoading) {
-      console.log("ProtectedRoute: Auth initialized, checking user...", { user, isInitialized, authLoading })
+    if (isInitialized && !authLoading && !maintenanceLoading) {
+      console.log("ProtectedRoute: Auth initialized, checking user...", { user, isInitialized, authLoading, maintenanceMode })
       
       // Check if user is authenticated
       if (!user) {
         console.log("ProtectedRoute: No user found, redirecting to signin")
         router.push("/auth/signin")
+        return
+      }
+
+      // Check maintenance mode (skip if user is admin)
+      if (maintenanceMode && !adminRoles.includes(user.role)) {
+        console.log("ProtectedRoute: Maintenance mode active, non-admin user, redirecting to maintenance page")
+        router.push("/maintenance")
         return
       }
 
@@ -47,11 +79,11 @@ export function ProtectedRoute({ children, allowedRoles, requireApproval = true 
 
       console.log("ProtectedRoute: All checks passed, rendering children")
     }
-  }, [user, authLoading, isInitialized, router, allowedRoles, requireApproval])
+  }, [user, authLoading, isInitialized, maintenanceMode, maintenanceLoading, router, allowedRoles, requireApproval])
 
   // Show loading state while auth is initializing or loading
-  if (!isInitialized || authLoading) {
-    console.log("ProtectedRoute: Showing loading state", { isInitialized, authLoading })
+  if (!isInitialized || authLoading || maintenanceLoading) {
+    console.log("ProtectedRoute: Showing loading state", { isInitialized, authLoading, maintenanceLoading })
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -69,6 +101,18 @@ export function ProtectedRoute({ children, allowedRoles, requireApproval = true 
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <p className="text-gray-600">Redirecting to login...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Check maintenance mode for non-admin users
+  if (maintenanceMode && !adminRoles.includes(user.role)) {
+    console.log("ProtectedRoute: Maintenance mode active for non-admin user")
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <p className="text-gray-600">Redirecting to maintenance page...</p>
         </div>
       </div>
     )
