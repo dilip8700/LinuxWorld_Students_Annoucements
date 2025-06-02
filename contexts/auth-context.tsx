@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { createContext, useState, useEffect, useContext } from "react"
+import { useRouter } from "next/navigation" // Add this import
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -35,10 +36,12 @@ export const useAuth = () => {
   return context
 }
 
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const router = useRouter() // Add this
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(false)
-  const [isInitialized, setIsInitialized] = useState(false) // Track initialization
+  const [isInitialized, setIsInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -178,9 +181,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await signOut(auth)
       setUser(null)
       console.log("Sign out successful")
+      
+      // Add the redirect here
+      router.push('/auth/signin')
     } catch (error: any) {
       console.error("Sign out error:", error)
       setError(error.message)
+      // Even if there's an error, try to redirect
+      router.push('/auth/signin')
     } finally {
       setAuthLoading(false)
     }

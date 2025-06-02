@@ -44,7 +44,7 @@ interface MainLayoutProps {
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
-  const { user, signOut } = useAuth()
+  const { user, signOutUser } = useAuth()
   const pathname = usePathname()
 
   const getNavigationItems = () => {
@@ -196,7 +196,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={signOut}>
+                  <DropdownMenuItem onClick={signOutUser}>
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign Out
                   </DropdownMenuItem>
