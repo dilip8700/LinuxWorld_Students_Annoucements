@@ -2,6 +2,7 @@
 
 
 
+
 "use client"
 
 import { useEffect, useState } from "react"
@@ -11,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { getAnnouncements, getUserGroups, markAnnouncementAsViewed } from "@/lib/firebase-utils"
+import { getAnnouncements, getGroups, markAnnouncementAsViewed } from "@/lib/firebase-utils" // Changed to getGroups
 import { useAuth } from "@/contexts/auth-context"
 import type { Announcement, Group, User } from "@/types"
 import { Users, MessageSquare, BookOpen, Calendar, Search, Download, Clock, ImageIcon, File, Video } from "lucide-react"
@@ -23,9 +24,8 @@ export default function DashboardPage() {
   const { user } = useAuth()
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [filteredAnnouncements, setFilteredAnnouncements] = useState<Announcement[]>([])
-  const [userGroups, setUserGroups] = useState<Group[]>([])
-  const [allGroups, setAllGroups] = useState<Map<string, Group>>(new Map()) // Store all groups by ID
-  const [userNames, setUserNames] = useState<Map<string, string>>(new Map()) // Store user names by ID
+  const [allGroups, setAllGroups] = useState<Group[]>([]) // Store all groups
+  const [userNames, setUserNames] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
 
@@ -41,7 +41,8 @@ export default function DashboardPage() {
       setFilteredAnnouncements(announcements)
     } else {
       const filtered = announcements.filter((announcement) => {
-        const groupName = allGroups.get(announcement.groupId)?.name || ""
+        const group = allGroups.find(g => g.id === announcement.groupId)
+        const groupName = group?.name || ""
         const posterName = userNames.get(announcement.createdBy) || ""
         return (
           announcement.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -58,21 +59,18 @@ export default function DashboardPage() {
     if (!user) return
 
     try {
-      // Get user's groups
-      const groups = await getUserGroups(user.assignedGroups || [])
-      setUserGroups(groups)
+      // Get ALL groups (not just user's groups)
+      const groupsData = await getGroups()
+      setAllGroups(groupsData)
       
-      // Create a map of all groups for quick lookup
-      const groupsMap = new Map<string, Group>()
-      groups.forEach(group => {
-        groupsMap.set(group.id, group)
-      })
-      setAllGroups(groupsMap)
+      console.log("All groups:", groupsData) // Debug log
 
       // Get announcements for user's groups
       const groupIds = user.assignedGroups || []
       const announcementsData = await getAnnouncements(groupIds)
       setAnnouncements(announcementsData)
+      
+      console.log("Announcements:", announcementsData) // Debug log
 
       // Fetch names for all users who created announcements
       const creatorIds = [...new Set(announcementsData.map(a => a.createdBy))]
@@ -175,12 +173,21 @@ export default function DashboardPage() {
 
   // Get group name helper
   const getGroupName = (groupId: string) => {
-    return allGroups.get(groupId)?.name || `Group ${groupId.substring(0, 6)}`
+    const group = allGroups.find(g => g.id === groupId)
+    return group?.name || `Group ${groupId.substring(0, 6)}`
   }
 
   // Get user name helper
   const getUserName = (userId: string) => {
     return userNames.get(userId) || 'Unknown User'
+  }
+
+  // Count user's groups (from assigned groups that exist)
+  const getUserGroupCount = () => {
+    if (!user?.assignedGroups) return 0
+    return user.assignedGroups.filter(groupId => 
+      allGroups.some(group => group.id === groupId)
+    ).length
   }
 
   if (loading) {
@@ -213,7 +220,7 @@ export default function DashboardPage() {
                 <Users className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{userGroups.length}</div>
+                <div className="text-2xl font-bold">{getUserGroupCount()}</div>
                 <p className="text-xs text-muted-foreground">Active enrollments</p>
               </CardContent>
             </Card>
@@ -238,7 +245,7 @@ export default function DashboardPage() {
                 <div className="text-2xl font-bold">
                   {announcements.reduce((total, announcement) => total + (announcement.files?.length || 0), 0)}
                 </div>
-                <p className="text-xs text-muted-foreground">Available files</p>
+                                <p className="text-xs text-muted-foreground">Available files</p>
               </CardContent>
             </Card>
 
@@ -260,7 +267,7 @@ export default function DashboardPage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-bold">Recent Announcements</h2>
-                            <div className="relative">
+              <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                 <Input
                   placeholder="Search announcements..."
@@ -287,7 +294,7 @@ export default function DashboardPage() {
                       <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
                       <h3 className="text-lg font-medium mb-2">No announcements yet</h3>
                       <p className="text-muted-foreground text-center">
-                        {userGroups.length === 0
+                        {getUserGroupCount() === 0
                           ? "You're not enrolled in any groups yet. Contact your administrator to get assigned to groups."
                           : "Your instructors haven't posted any announcements yet. Check back later for updates."}
                       </p>

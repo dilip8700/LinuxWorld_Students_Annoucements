@@ -281,12 +281,12 @@ import { getPlatformSettings } from "@/lib/firebase-utils"
 
 // Default super admin credentials
 const DEFAULT_SUPER_ADMIN = {
-  email: "test1bhupesh@gmail.com",
+  email: "linuxworld@gmail.com",
   password: "123456789",
   userData: {
     id: "default-super-admin",
     email: "test1bhupesh@gmail.com",
-    name: "Super Admin",
+    name: "Linux World Admin",
     role: "super_admin" as const,
     profileImage: "",
     mobileNumber: "",
