@@ -1,9 +1,10 @@
+// components/protected-route.tsx
 "use client"
 
 import type React from "react"
 import { useAuth } from "@/contexts/auth-context"
 import type { UserRole } from "@/types"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 import { getPlatformSettings } from "@/lib/firebase-utils"
 
@@ -16,11 +17,15 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children, allowedRoles, requireApproval = true }: ProtectedRouteProps) {
   const { user, authLoading, isInitialized } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
   const [maintenanceMode, setMaintenanceMode] = useState(false)
   const [maintenanceLoading, setMaintenanceLoading] = useState(true)
 
   // Admin roles that can bypass maintenance mode
   const adminRoles: UserRole[] = ['super_admin', 'admin', 'group_admin']
+
+  // Pages that don't require approval
+  const approvalExemptPaths = ['/pending-approval', '/auth/signin', '/auth/signup']
 
   // Check maintenance mode status
   useEffect(() => {
@@ -44,7 +49,12 @@ export function ProtectedRoute({ children, allowedRoles, requireApproval = true 
   useEffect(() => {
     // Only proceed with checks if auth is fully initialized and not loading
     if (isInitialized && !authLoading && !maintenanceLoading) {
-      console.log("ProtectedRoute: Auth initialized, checking user...", { user, isInitialized, authLoading, maintenanceMode })
+      console.log("ProtectedRoute: Auth initialized, checking user...", { 
+        user, 
+        isApproved: user?.isApproved,
+        requireApproval,
+        pathname 
+      })
       
       // Check if user is authenticated
       if (!user) {
@@ -61,8 +71,13 @@ export function ProtectedRoute({ children, allowedRoles, requireApproval = true 
       }
 
       // Check if user needs approval
-      if (requireApproval && !user.isApproved) {
-        console.log("ProtectedRoute: User not approved, redirecting to pending approval")
+      // Only check if requireApproval is true, user is not approved, and not on an exempt path
+      if (requireApproval && !user.isApproved && !approvalExemptPaths.includes(pathname)) {
+        console.log("ProtectedRoute: User not approved, redirecting to pending approval", {
+          isApproved: user.isApproved,
+          requireApproval,
+          pathname
+        })
         router.push("/pending-approval")
         return
       }
@@ -77,9 +92,13 @@ export function ProtectedRoute({ children, allowedRoles, requireApproval = true 
         return
       }
 
-      console.log("ProtectedRoute: All checks passed, rendering children")
+      console.log("ProtectedRoute: All checks passed, user can access", {
+        userEmail: user.email,
+        isApproved: user.isApproved,
+        role: user.role
+      })
     }
-  }, [user, authLoading, isInitialized, maintenanceMode, maintenanceLoading, router, allowedRoles, requireApproval])
+  }, [user, authLoading, isInitialized, maintenanceMode, maintenanceLoading, router, allowedRoles, requireApproval, pathname])
 
   // Show loading state while auth is initializing or loading
   if (!isInitialized || authLoading || maintenanceLoading) {
@@ -118,7 +137,7 @@ export function ProtectedRoute({ children, allowedRoles, requireApproval = true 
     )
   }
 
-  if (requireApproval && !user.isApproved) {
+  if (requireApproval && !user.isApproved && !approvalExemptPaths.includes(pathname)) {
     console.log("ProtectedRoute: User not approved after initialization, should redirect")
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">

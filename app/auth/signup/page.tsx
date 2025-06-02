@@ -1,19 +1,21 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
+import { useRouter } from "next/navigation"
+import { getPlatformSettings } from "@/lib/firebase-utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { BookOpen, Upload } from "lucide-react"
+import { BookOpen, Upload, CheckCircle } from "lucide-react"
 import Link from "next/link"
 
 export default function SignUpPage() {
+  const router = useRouter()
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -24,6 +26,8 @@ export default function SignUpPage() {
   })
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
+  const [isAutoApproved, setIsAutoApproved] = useState(false)
+  const [redirecting, setRedirecting] = useState(false)
   const { signUp, authLoading } = useAuth()
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -67,9 +71,28 @@ export default function SignUpPage() {
         name: formData.name,
         mobileNumber: formData.mobileNumber,
         profileImage: formData.profileImage,
+        role: "student" as const, // Explicitly set role to student
       }
+      
+      // Sign up the user
       await signUp(userData, formData.password)
+      
+      // Check if auto-approval is enabled
+      const platformSettings = await getPlatformSettings()
+      const autoApproved = platformSettings.autoApproveStudents || false
+      
+      console.log("Signup successful, auto-approval status:", autoApproved)
+      
+      setIsAutoApproved(autoApproved)
       setSuccess(true)
+      
+      // If auto-approved, redirect to dashboard after a brief delay
+      if (autoApproved) {
+        setRedirecting(true)
+        setTimeout(() => {
+          router.push("/dashboard")
+        }, 2000) // 2 second delay to show success message
+      }
     } catch (err: any) {
       setError(err.message || "Failed to create account")
     }
@@ -81,18 +104,44 @@ export default function SignUpPage() {
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
-              <BookOpen className="h-12 w-12 text-green-600" />
+              {isAutoApproved ? (
+                <CheckCircle className="h-12 w-12 text-green-600" />
+              ) : (
+                <BookOpen className="h-12 w-12 text-orange-600" />
+              )}
             </div>
-            <CardTitle className="text-2xl text-green-600">Welcome to LinuxWorld!</CardTitle>
+            <CardTitle className="text-2xl">
+              {isAutoApproved ? "Welcome to LinuxWorld!" : "Registration Successful!"}
+            </CardTitle>
             <CardDescription>
-              Your LinuxWorld account has been created and is pending approval from an administrator. You will receive
-              an email once your account is approved.
+              {isAutoApproved ? (
+                <>
+                  Your account has been automatically approved! 
+                  {redirecting ? " Redirecting to dashboard..." : " You can now access all student features."}
+                </>
+              ) : (
+                "Your LinuxWorld account has been created and is pending approval from an administrator. You will receive an email once your account is approved."
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button asChild className="w-full">
-              <Link href="/auth/signin">Return to Sign In</Link>
-            </Button>
+            {isAutoApproved ? (
+              <div className="space-y-3">
+                {redirecting ? (
+                  <div className="flex items-center justify-center py-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  </div>
+                ) : (
+                  <Button asChild className="w-full">
+                    <Link href="/dashboard">Go to Dashboard</Link>
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <Button asChild className="w-full">
+                <Link href="/auth/signin">Return to Sign In</Link>
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>
